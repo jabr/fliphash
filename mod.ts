@@ -1,11 +1,8 @@
 import * as XXH64 from "https://deno.land/x/xxhash64@2.0.0/mod.ts"
 
-const seedBytes = new Uint8Array(BigUint64Array.BYTES_PER_ELEMENT)
-const seedView = new DataView(seedBytes.buffer)
-
 export default class Fliphash {
   static async instance(seed: bigint) {
-    return new this(seed, await XXH64.create3())
+    return new this(BigInt(seed), await XXH64.create3())
   }
 
   private seedBytes = new Uint8Array(BigUint64Array.BYTES_PER_ELEMENT)
@@ -19,38 +16,42 @@ export default class Fliphash {
   }
 
   hash(key: string, buckets: number) {
-    if (buckets <= 0) { return 0n }
+    if (buckets <= 1) { return 0n }
+    const end = buckets - 1
 
     const $h = (k: string, s: bigint, len: number, iteration: number) => {
+      const mm = BigInt(len) + BigInt(iteration) << 32n
       return this.hasher.reseed(
-        this.generateSeed(s ^ BigInt(len + iteration << 32))
+        this.generateSeed(s ^ mm)
       ).update(k).digest('bigint') as bigint
     }
 
     const $p = (k: string, s: bigint, hash: bigint, mask: bigint) => {
       const mh = hash & mask
       if (mh === 0n) { return 0n }
-      const flip = $h(k, s, Math.log2(mask), 0)
+      const log2 = mask.toString(2).length - 1
+      const m2 = BigInt(Math.pow(2, mask.toString(2).length ) - 1) >> 1n
+      console.log(log2.toString(2), m2.toString(2))
+      const flip = $h(k, s, log2, 0) & m2
       return mh ^ flip
     }
 
-    let mask = 0n
-    let hash = $h(key, this.seed, 0, 0)
+    const mask = BigInt(Math.pow(2, end.toString(2).length) - 1)
+    const hash = $h(key, this.seed, 0, 0)
+    const ph = $p(key, this.seed, hash, mask)
+    if (ph <= end) { return ph }
 
-    let ph = $p(key, this.seed, hash, mask)
-    if (ph <= buckets) { return ph }
-
+    const endl2 = end.toString(2).length - 1
     let iteration = 1
 
-    let draw
     while (true) {
-      if iteration > 64 { draw = null; break }
-      draw = $h(key, this.seed, Math.log2(buckets), iteration) & mask
-      if (draw <= mask >> 1n) { draw = null; break }
-      else if (draw <= buckets) { break }
+      if (iteration > 64) { break }
+      const draw = $h(key, this.seed, endl2, iteration) & mask
+      console.log('l', draw)
+      if (draw <= mask >> 1n) {break }
+      else if (draw <= end) { return draw }
       iteration++
     }
-    if (draw !== null) { return draw }
-    return $p(key, this.seed, hash, mask)
+    return $p(key, this.seed, hash, mask >> 1n)
   }
 }
