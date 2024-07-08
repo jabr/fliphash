@@ -2,7 +2,7 @@ import * as XXH64 from "https://deno.land/x/xxhash64@2.0.0/mod.ts"
 
 type Key = bigint|string
 interface Hasher {
-  hash(k: Key, s: bigint, len: number, iteration: number): bigint;
+  hash(key: Key, seed: bigint, bits: number, iteration: number): bigint;
 }
 
 class XXH3Hasher implements Hasher {
@@ -16,23 +16,31 @@ class XXH3Hasher implements Hasher {
     return this.seedBytes
   }
 
-  hash(k: string, s: bigint, len: number, iteration: number) {
-    const mm = BigInt(len) + BigInt(iteration) << 32n
+  hash(key: string, seed: bigint, bits: number, iteration: number) {
+    const mask = BigInt(bits) + BigInt(iteration) << 32n
     return this.hasher.reseed(
-      this.generateSeed(s ^ mm)
-    ).update(k).digest('bigint') as bigint
+      this.generateSeed(seed ^ mask)
+    ).update(key).digest('bigint') as bigint
   }
+}
+
+function intLog2(value: number|bigint) {
+  return (value.toString(2).length - 1)
+}
+
+function maskFrom(value: number|bigint) {
+  return BigInt(Math.pow(2, value.toString(2).length) - 1)
 }
 
 class MoremurHasher implements Hasher {
   // https://mostlymangling.blogspot.com/2019/12/stronger-better-morer-moremur-better.html
-  hash(k: bigint, s: bigint, len: number, iteration: number) {
-    k = k ^ s
-    k = (k * (BigInt(len) * 2n + 1n)) & 0xffff_ffff_ffff_ffffn;
-    k = ((k ^ (k >> 27n)) * 0x3C79AC492BA7B653n) & 0xffff_ffff_ffff_ffffn;
-    k = (k * (BigInt(iteration) * 2n + 1n)) & 0xffff_ffff_ffff_ffffn;
-    k = ((k ^ (k >> 33n)) * 0x1C69B3F74AC4AE35n) & 0xffff_ffff_ffff_ffffn;
-    return k ^ (k >> 27n)
+  hash(key: bigint, seed: bigint, bits: number, iteration: number) {
+    key = key ^ seed
+    key = (key * (BigInt(bits) * 2n + 1n)) & 0xffff_ffff_ffff_ffffn;
+    key = ((key ^ (key >> 27n)) * 0x3C79AC492BA7B653n) & 0xffff_ffff_ffff_ffffn;
+    key = (key * (BigInt(iteration) * 2n + 1n)) & 0xffff_ffff_ffff_ffffn;
+    key = ((key ^ (key >> 33n)) * 0x1C69B3F74AC4AE35n) & 0xffff_ffff_ffff_ffffn;
+    return key ^ (key >> 27n)
   }
 }
 
@@ -60,29 +68,26 @@ export default class Fliphash {
     if (buckets <= 1) { return 0n }
     const end = buckets - 1
 
-    const $p = (k: Key, s: bigint, hash: bigint, mask: bigint) => {
-      const mh = hash & mask
-      if (mh === 0n) { return 0n }
-      const log2 = mh.toString(2).length - 1
-      const m2 = BigInt(Math.pow(2, mh.toString(2).length ) - 1) >> 1n
-      const flip = hasher.hash(k, s, log2, 0) & m2
-      return mh ^ flip
+    const rehash = (hash: bigint, mask: bigint) => {
+      const maskedHash = hash & mask
+      if (maskedHash === 0n) { return 0n }
+      const log2 = intLog2(maskedHash)
+      const halfMask = maskFrom(maskedHash) >> 1n
+      const flip = hasher.hash(key, this.seed, log2, 0) & halfMask
+      return maskedHash ^ flip
     }
 
-    const mask = BigInt(Math.pow(2, end.toString(2).length) - 1)
+    const mask = maskFrom(end)
     const hash = hasher.hash(key, this.seed, 0, 0)
-    const ph = $p(key, this.seed, hash, mask)
+    const ph = rehash(hash, mask)
     if (ph <= end) { return ph }
 
-    const endl2 = end.toString(2).length - 1
-    let iteration = 1
-
-    while (iteration <= 64) {
-      const draw = hasher.hash(key, this.seed, endl2, iteration) & mask
+    const endLog2 = intLog2(end)
+    for (let iteration = 1; iteration <= 64; iteration++) {
+      const draw = hasher.hash(key, this.seed, endLog2, iteration) & mask
       if (draw <= mask >> 1n) { break }
       else if (draw <= end) { return draw }
-      iteration++
     }
-    return $p(key, this.seed, hash, mask >> 1n)
+    return rehash(hash, mask >> 1n)
   }
 }
