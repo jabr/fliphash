@@ -45,7 +45,7 @@ class MoremurHasher implements Hasher {
 }
 
 export default class Fliphash {
-  static async instance(seed: bigint = 0n) {
+  static async instance(seed: bigint = 0n): Promise<Fliphash> {
     return new this(BigInt(seed), await XXH64.create3())
   }
 
@@ -56,11 +56,11 @@ export default class Fliphash {
   private moremurHasher = new MoremurHasher()
   private xxh3Hasher: XXH3Hasher
 
-  hash_string(key: string, buckets: number) {
+  hash_string(key: string, buckets: number): number {
     return Number(this.internalHash(this.xxh3Hasher, key, buckets))
   }
 
-  hash_bigint(key: bigint, buckets: number) {
+  hash_bigint(key: bigint, buckets: number): number {
     return Number(this.internalHash(this.moremurHasher, key, buckets))
   }
 
