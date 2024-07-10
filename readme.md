@@ -36,4 +36,4 @@ Derived from the Rust [fliphash crate](https://docs.rs/fliphash/latest/fliphash/
 
 ## License
 
-This project is licensed under the terms of the [MIT license](LICENSE.txt).
+This project is licensed under the terms of the [Apache License, Version 2.0](LICENSE.txt).
